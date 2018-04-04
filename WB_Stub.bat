@@ -1,0 +1,1 @@
+java -Dfile.encoding=UTF-8 -jar WB_Stub.jar 20
