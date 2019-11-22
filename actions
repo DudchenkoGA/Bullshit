@@ -1,0 +1,873 @@
+import com.codeborne.selenide.*;
+import com.jayway.restassured.RestAssured;
+import com.jayway.restassured.response.Header;
+import com.jayway.restassured.response.Response;
+import com.jayway.restassured.specification.RequestSpecification;
+import io.qameta.allure.Step;
+import org.openqa.selenium.*;
+import org.openqa.selenium.html5.LocalStorage;
+import org.openqa.selenium.interactions.Action;
+import org.openqa.selenium.remote.Augmenter;
+import org.openqa.selenium.remote.DriverCommand;
+import org.openqa.selenium.remote.RemoteExecuteMethod;
+import org.openqa.selenium.remote.RemoteWebDriver;
+import org.openqa.selenium.remote.html5.RemoteLocalStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.testng.Assert;
+import ru.gazprombank.framework.utils.ScreenshotUtils;
+import ru.gazprombank.solution.pages.main.MainPage;
+import ru.yandex.qatools.ashot.AShot;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.Map;
+
+import static com.codeborne.selenide.Selenide.open;
+import static com.codeborne.selenide.Selenide.page;
+import static com.codeborne.selenide.WebDriverRunner.*;
+import static com.jayway.restassured.RestAssured.given;
+import static ru.gazprombank.framework.utils.ScreenshotUtils.attachScreen;
+import static ru.gazprombank.framework.utils.ScreenshotUtils.attachUrl;
+import static ru.gazprombank.framework.utils.WebUtils.*;
+
+@Component
+public class Actions {
+
+    private static Logger log = LoggerFactory.getLogger(ScreenshotUtils.class);
+
+    @Value("${base.url}")
+    private String url;
+
+
+    @Step("Открыть главную страницу")
+    public <T> MainPage openPage() {
+        if(!System.getenv("property.contour").contains("prod")) {
+            String url2 = url.substring(0,8).concat(url.substring(url.indexOf('@')+1));
+            open(url2);
+        }
+        open(url);
+        MainPage mainPage = page(MainPage.class);
+        if (mainPage.btn_demo2.isDisplayed()) mainPage.btn_demo2.click();
+        if (mainPage.cookiesAlert.isDisplayed()) mainPage.cookiesConfirm.click();
+        attachUrl(getWebDriver().getCurrentUrl());
+        takeBrowserScreenshot(getClassName(MainPage.class.getName()));
+        return page(MainPage.class);
+    }
+
+    @Step("Открыть страницу: {postfix}")
+    public <T> T openPage(String postfix, Class<T> clazz) {
+        if(!System.getenv("property.contour").equals("prod")){
+            String url2 = url.substring(0,8).concat(url.substring(url.indexOf('@')+1));
+            open(url2 + postfix);
+        }else {
+            open(url + postfix);
+        }
+        waitIsOpen();
+        takeBrowserScreenshot(getClassName(clazz.getName()));
+        return page(clazz);
+    }
+
+    @Step("Открыть страницу: {postfix}")
+    public <T> T openPage2(String postfix,Class<T> clazz) {
+        open(url + postfix);
+        return page(clazz);
+    }
+
+     public <T> T  returnPage( Class<T> clazz) {
+        return page(clazz);
+    }
+
+
+
+    public Actions click(SelenideElement se) {
+        se.shouldBe(Condition.visible);
+        click(se, se.getText());
+        return this;
+    }
+    @Step("Нажатие на элемент \"{elementName}\"")
+    public Actions clickOnAll(ElementsCollection ec) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        for(SelenideElement se : ec){
+            se.shouldBe(Condition.visible);
+            click(se, se.getText()).wait_int(250);
+        }
+
+        return this;
+    }
+
+    public <T> T click(SelenideElement se, Class<T> clazz) {
+        se.shouldBe(Condition.visible);
+        click(se, se.getText());
+        waitIsOpen();
+        takeBrowserScreenshot(getClassName(clazz.getName()));
+        return page(clazz);
+    }
+
+    @Step("Нажатие на элемент \"{elementName}\"")
+    public Actions click(SelenideElement se, String elementName) {
+        se.click();
+        return this;
+    }
+
+    @Step("Нажатие на элемент \"{elementName}\"")
+    public <T> T click(SelenideElement se, String elementName, Class<T> clazz) {
+        se.click();
+        return page(clazz);
+    }
+
+    @Step("Нажатие на {num} элемент среди элементов \"{name}\"")
+    public Actions click(ElementsCollection ec, int num, String name) {
+        ec.get(num).shouldBe(Condition.visible).click();
+        return this;
+    }
+
+    @Step("Передача нажатия кнопки {name}")
+    public Actions sendKeys(Keys keys, String name) {
+        org.openqa.selenium.interactions.Actions action = new org.openqa.selenium.interactions.Actions(WebDriverRunner.getWebDriver());
+        action.sendKeys(keys);
+        return this;
+    }
+
+
+    @Step("Ввести в поле \"{name}\" значение: \"{value}\"")
+    public Actions setValue(SelenideElement se, String value, String name) {
+        ElementsCollection ec = null;
+
+        if (!se.getTagName().equals("input")){
+
+            ec=se.findAll("input");
+
+            if(ec.isEmpty()) {
+                ec = se.findAll("textarea");
+                Assert.assertTrue(ec.isEmpty(), "Не найдено поле для ввода в переданном элементе");
+            }
+
+            for (SelenideElement e : ec) {
+                if (e.isDisplayed()) {
+//                e.setValue(value);
+                    e.sendKeys(value);
+                    break;
+                }
+            }
+
+        }else{
+            se.sendKeys(value);
+        }
+        return this;
+    }
+
+    @Step("Ожидание {time} милисекунд")
+    public Actions wait(int time) {
+        try {
+            Thread.sleep(time);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return this;
+    }
+
+
+    private Actions wait_int(int time) {
+        try {
+            Thread.sleep(time);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return this;
+    }
+
+    @Step("Ожидание состояния в течение {time}")
+    public Actions waitUntil(SelenideElement se, int time) {
+        while(time > 0){
+            if(!se.is(Condition.exist)){
+                try {
+                    Thread.sleep(500);
+                    time-=500;
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }else {
+                break;
+            }
+        }
+
+        return this;
+    }
+    @Step("Ожидание состояния в течение {time}")
+    public Actions waitUntil(ElementsCollection ec, int time) {
+        while(time > 0){
+            if(ec.isEmpty()){
+                try {
+                    Thread.sleep(500);
+                    time-=500;
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }else {
+                break;
+            }
+        }
+
+        return this;
+    }
+
+    public Actions check(SelenideElement se, Condition condition) {
+       if(!(condition.toString().contains("not") && condition.toString().contains("exist"))) se.shouldBe(Condition.visible);
+        check(se, condition, getConditionName(condition), se.getText());
+        return this;
+    }
+
+    @Step("Проверка на совпадение \"{name}\"")
+    public Actions checkTrue(Object obj1, Object obj2, String message, String name) {
+        Assert.assertTrue(obj1==obj2,message);
+        return this;
+    }
+
+    @Step("Проверка на различие \"{name}\"")
+    public Actions checkFalse(Object obj1, Object obj2, String message, String name) {
+        Assert.assertFalse(obj1==obj2,message);
+        return this;
+    }
+
+    public Actions check(SelenideElement se, Condition condition, String name) {
+        if(!(condition.toString().contains("not") && condition.toString().contains("exist"))) se.shouldBe(Condition.visible);
+        check(se, condition, getConditionName(condition), name);
+        return this;
+    }
+
+    @Step("Проверка элемента \"{name}\" на {value}")
+    private void check(SelenideElement se, Condition condition, String value, String name) {
+        se.shouldBe(condition);
+    }
+
+    public Actions check(ElementsCollection ec, Condition condition, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        check(ec, condition, getConditionName(condition), name);
+        return this;
+    }
+
+    @Step("Проверка на содержание текста \"{value}\" среди элементов \"{name}\"")
+    public Actions check(ElementsCollection ec, String value, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int check = 0;
+        for (SelenideElement se : ec) {
+            if (se.shouldBe(Condition.visible).getText().contains(value)) {
+                check++;
+                successfulTest();
+                break;
+            }
+        }
+        Assert.assertEquals(check, 1, "Не найдено элементов, содержащих текст: \"" + value + "\" ");
+        return this;
+    }
+
+    @Step("Проверка на содержание текста \"{value}\" среди элемента \"{name}\"")
+    public Actions check(String element, String value, String name) {
+        Assert.assertTrue(element.contains(value));
+        return this;
+    }
+
+    @Step("переключение на вкладку номер {tab}")
+    public Actions switchTab(int tab) {
+
+        ArrayList<String> tabs = new ArrayList<String>(getWebDriver().getWindowHandles());
+        getWebDriver().switchTo().window(tabs.get(tab-1));
+        return this;
+    }
+
+    @Step("закрытие вкладки")
+    public Actions closeTab(int tab) {
+
+        ArrayList<String> tabs = new ArrayList<String>(getWebDriver().getWindowHandles());
+        getWebDriver().switchTo().window(tabs.get(tab-1)).close();
+        return this;
+    }
+
+    @Step("Проверка на содержание текста \"{value}\" среди элементов \"{name}\" {counter} раз")
+    public Actions check(ElementsCollection ec, String value, int counter, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int check = 0;
+        for (SelenideElement se : ec) {
+            if (se.shouldBe(Condition.visible).getText().toLowerCase().contains(value.toLowerCase())) {
+                check++;
+                if (check == counter) {
+                    break;
+                }
+            }
+        }
+        Assert.assertEquals(check, counter, "Количество элементов, содержащих текст: \"" + value + "\" не совпадает с ожидаемым ");
+        return this;
+    }
+
+    @Step("Проверка элементов \"{name}\" на {value}")
+    private void check(ElementsCollection ec, Condition condition, String value, String name) {
+        for (SelenideElement se : ec) {
+            se.shouldBe(condition);
+        }
+    }
+
+    @Step("Проверка {name} на наличие элемента со значением \"{value}\"")
+    public Actions find(ElementsCollection ec, String value, String name) {
+        boolean flag = false;
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        for (SelenideElement se : ec){
+            if(se.getText().toLowerCase().replaceAll("\\s","").replaceAll("\\u00A0","")
+                    .contains(value.toLowerCase().replaceAll("\\s","").replaceAll("\\u00A0",""))){
+                flag = true;
+            }
+        }
+        Assert.assertTrue(flag,"элемент содержащий значение "+value+" не найден среди "+name);
+        return this;
+    }
+
+    @Step("Проверка {name} на наличие элементов со значением \"{value}\"")
+    public Actions findEquals(ElementsCollection ec, String value, String name) {
+        boolean flag = false;
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        for (SelenideElement se : ec){
+            if(se.getText().toLowerCase().replaceAll("\\s","").replaceAll("\\u00A0","")
+                    .equals(value.toLowerCase().replaceAll("\\s","").replaceAll("\\u00A0",""))){
+                flag = true;
+            }
+        }
+        Assert.assertTrue(flag,"элемент со значением "+value+" не найден среди "+name);
+        return this;
+    }
+    @Step("Сопоставление коллекции элементов со списком значений")
+    public Actions checkElementsCollectionOnValueList(ElementsCollection ec, ArrayList<String> valueList) {
+        int valueListSize = valueList.size();
+        ec.shouldBe(CollectionCondition.size(valueListSize));
+        for (int i = 0; i < valueListSize; i++) {
+            Assert.assertEquals(ec.get(i).getText().toLowerCase().replaceAll("\\s","").replaceAll("\\u00A0",""),
+                    valueList.get(i).toLowerCase().replaceAll("\\s","").replaceAll("\\u00A0",""),
+                    "Элемент коллекции не совпадает с ожидаемым элементом");
+        }
+        return this;
+    }
+
+    public Actions findEach(ElementsCollection ec, ArrayList<String> valueList, String name) {
+        boolean flag = false;
+        int valueListSize = valueList.size();
+        ec.shouldBe(CollectionCondition.size(valueListSize));
+        for (int i = 0; i < valueListSize; i++) {
+            findEquals(ec, valueList.get(i),name);
+        }
+        return this;
+    }
+
+
+    public Actions scroll(SelenideElement se) {
+        se.scrollIntoView(true);
+        return this;
+    }
+
+    @Step("Сдвиг слайдера на {offset}")
+    public Actions slider(SelenideElement se, int offset) {
+        se.scrollIntoView(true);
+        org.openqa.selenium.interactions.Actions move = new org.openqa.selenium.interactions.Actions(getWebDriver());
+        Action action = move.dragAndDropBy(se, offset, 0).build();
+        action.perform();
+        return this;
+    }
+
+    @Step("Прокрутка списка с шагом {step} и нажатие на элемент с названием: \"{value}\"")
+    public Actions scrollAndClick(ElementsCollection ec, String value, int step) {
+        JavascriptExecutor je = (JavascriptExecutor) getWebDriver();
+        for (SelenideElement se : ec) {
+            if (se.is(Condition.not(Condition.visible))) {
+//                scroll(se);
+//                je.executeScript("arguments[0].scrollIntoView(false);", se.toWebElement());
+//                se.scrollTo();
+//                se.scrollIntoView("{behavior: \"smooth\", block: \"nearest\", inline: \"start\"}");
+                se.scrollIntoView(false);
+            }
+
+            if (se.getText().toLowerCase().contains(value.toLowerCase())) {
+//                je.executeScript("arguments[0].scrollIntoView(false);", se.toWebElement());
+                se.should(Condition.visible).click();
+                break;
+            }
+        }
+        return this;
+    }
+
+    @Step("Проверка url'а на содержание: \"{url}\"")
+    public Actions checkUrl(String url) {
+        waitIsOpen();
+        Assert.assertTrue(getWebDriver().getCurrentUrl().contains(url));
+        return this;
+    }
+
+    @Step("Проверка url'а на содержание: \"{url}\"")
+    public Actions checkUrlAndCloseTab(String url,int tabToClose) {
+        waitIsOpen();
+        ArrayList<String> tabs = new ArrayList<String>(getWebDriver().getWindowHandles());
+        Assert.assertTrue(getWebDriver().getCurrentUrl().contains(url));
+        getWebDriver().switchTo().window(tabs.get(tabToClose-1)).close();
+        getWebDriver().switchTo().window(tabs.get(0));
+        wait(1000);
+        return this;
+    }
+
+    @Step("Нажатие по элементу, содержащему \"{value}\", из элементов \"{name}\"")
+    public Actions chooseAndClick(ElementsCollection ec, String value, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int counter = 0;
+        for (SelenideElement se : ec) {
+//            scroll(se);
+            if (se.shouldBe(Condition.exist).getText().toLowerCase().contains(value.toLowerCase())) {
+
+                ec.find(Condition.text(valueReplacement(value).toLowerCase())).shouldBe(Condition.visible)
+                        .waitUntil(Condition.enabled, 5000).click();
+                counter++;
+                break;
+            }
+        }
+        Assert.assertEquals(counter, 1, "Не удалось выполнить нажатие на объект \"" + value + "\" ");
+        return this;
+    }
+
+    @Step("Нажатие на {index}-й элемент из \"{name}\"")
+    public Actions chooseAndClick(ElementsCollection ec, Integer index, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int counter = -1;
+        for (SelenideElement se : ec) {
+//            scroll(se);
+            counter++;
+            if (counter==index-1) {
+
+                se.shouldBe(Condition.visible)
+                        .waitUntil(Condition.enabled, 5000).click();
+                break;
+            }
+
+        }
+        Assert.assertTrue(counter>-1, "Не удалось выполнить нажатие на объект под номером "+index);
+        return this;
+    }
+
+    @Step("Нажатие по элементу, содержащему \"{value}\", в атрибуте \"{attributeName}\"")
+    public Actions clickOnByAttribute(ElementsCollection ec, String value, String attributeName) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int counter = 0;
+        for (SelenideElement se : ec) {
+            if (se.shouldBe(Condition.exist).getAttribute(attributeName).toLowerCase().contains(valueReplacement(value).toLowerCase())) {
+                if(!se.is(Condition.visible)) se.scrollIntoView("{behavior: \"smooth\", block: \"center\"}");
+                wait(1000);
+                se.waitUntil(Condition.enabled, 5000).click();
+                counter++;
+                break;
+            }
+        }
+        Assert.assertEquals(counter, 1, "Не удалось выполнить нажатие на объект \"" + value + "\" ");
+        return this;
+    }
+
+    public Actions randomChooseAndClick(ElementsCollection ec, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        randomChooseAndClick(ec, randomInt(0, ec.size()), name);
+        return this;
+    }
+
+    @Step("Нажатие по случайному элементу из элементов \"{name}\"")
+    public Actions randomClick(ElementsCollection ec, String name) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        ec.get(randomInt(0, ec.size()-1)).click();
+        return this;
+    }
+
+    @Step("Нажатие по {value} элементу из элементов \"{name}\"")
+    private void randomChooseAndClick(ElementsCollection ec, Integer value, String name) {
+        ec.get(value).shouldBe(Condition.visible).click();
+    }
+
+    @Step("Очистка элемента от значения по умолчанию")
+    public Actions clean(SelenideElement se, int count) {
+//        se.clear();
+        if (!se.getTagName().equals("input")) {
+            se = se.$(By.cssSelector("input"));
+            if (!se.getTagName().equals("input")) {
+                se = se.$(By.cssSelector("textarea"));
+                Assert.assertTrue(se.getTagName().equals("textarea"), "Не найдено поле для ввода в переданном элементе");
+            }
+        }
+
+        for (int i = 0; i < count; i++) {
+            se.sendKeys(Keys.BACK_SPACE);
+            wait_int(50);
+        }
+        return this;
+    }
+
+    @Step("Нажатие по элементу, содержащему \"{value}\", из элементов \"{name}\"")
+    public <T> T chooseAndClick(ElementsCollection ec, String value, String name, Class<T> clazz) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int counter = 0;
+        for (SelenideElement se : ec) {
+            if (se.shouldBe(Condition.visible).getText().toLowerCase().contains(value.toLowerCase())) {
+                se.click();
+                counter++;
+                break;
+            }
+        }
+        Assert.assertEquals(counter, 1, "Не удалось выполнить нажатие на объект \"" + value + "\" ");
+        waitIsOpen();
+        takeBrowserScreenshot(getClassName(clazz.getName()));
+        return page(clazz);
+    }
+
+    @Step("Проверка успешно пройдена!")
+    private void successfulTest() {
+    }
+
+    public Actions takeBrowserScreenshot(String screenName) {
+        if (WebDriverRunner.hasWebDriverStarted()) {
+            byte[] img = ((TakesScreenshot) getWebDriver()).getScreenshotAs(OutputType.BYTES);
+            if (img == null || img.length == 0) {
+                log.info("Не удалоcь сделать скриншот");
+            } else {
+                attachScreen(screenName, img);
+            }
+        }
+        return this;
+    }
+
+    public Actions takeScreenshotElement(String attachmentName, WebElement webElement) {
+        try {
+            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                ((JavascriptExecutor) getWebDriver()).executeScript("document.body.style.zoom='45%'");
+                WebDriver webDriver = new Augmenter().augment(getWebDriver());
+                BufferedImage bufferedImage = new AShot()
+                        .takeScreenshot(webDriver, webElement).getImage();
+                ImageIO.write(bufferedImage, "png", baos);
+                baos.flush();
+                attachScreen(attachmentName, baos.toByteArray());
+                ((JavascriptExecutor) getWebDriver()).executeScript("document.body.style.zoom='100%'");//"window.scrollTo(0,0);");
+            } catch (RuntimeException ex) {
+                log.info("Невозможно сохранить скриншот: " + ex);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return this;
+    }
+
+    public Actions hover(SelenideElement se) {
+        se.hover();
+        return this;
+    }
+
+    @Step("Навестись на элемент с названием {value}")
+    public Actions hover(ElementsCollection ec, String value) {
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        int counter = 0;
+        for (SelenideElement se : ec) {
+            if (se.getText().toLowerCase().contains(value.toLowerCase())) {
+                se.hover();
+                counter++;
+                break;
+            }
+        }
+        Assert.assertEquals(counter, 1, "Не удалось навестись на объект \"" + value + "\" ");
+        return this;
+    }
+
+    @Step("Проверка текущего урла на содержание \"{expectedString}\" и переключение на первую страницу")
+    public Actions checkUrlAndReturn(String expectedString, int tabToClose) {
+        wait(2000);
+        ArrayList<String> tabs = new ArrayList<String>(getWebDriver().getWindowHandles());
+        Assert.assertTrue(getWebDriver().switchTo().window(tabs.get(tabToClose-1)).getCurrentUrl().contains(expectedString),
+                "Адрес не соответствует ожидаемому: "+getWebDriver().getCurrentUrl()+"!");
+        wait(1000);
+        getWebDriver().switchTo().window(tabs.get(tabToClose-1)).close();
+        getWebDriver().switchTo().window(tabs.get(0));
+        wait(1000);
+        return this;
+    }
+
+    @Step("Проверка текущего урла на содержание \"{expectedString}\" и возвращение на предыдущую страницу")
+    public Actions checkUrlAndReturn(String expectedString) {
+        wait(2000);
+        Assert.assertTrue(WebDriverRunner.getWebDriver().getCurrentUrl().contains(expectedString),
+                "Адрес не соответствует ожидаемому: "+WebDriverRunner.getWebDriver().getCurrentUrl()+"!");
+        wait(1000);
+        back();
+        wait(1000);
+        return this;
+    }
+
+    @Step("Проверка введенного значения в инпут на длину в {length}")
+    public Actions checkInputLength(SelenideElement se, int length) {
+        se.shouldBe(Condition.visible);
+        if (se.getTagName().equals("input")){
+            Assert.assertTrue(se.getValue().length()==length, "длина не совпадает, в инпуте "
+                    +se.getValue().length());
+        }else{
+        Assert.assertTrue(se.$(By.cssSelector("input")).getValue().length()==length, "длина не совпадает, в инпуте "
+                +se.$(By.cssSelector("input")).getValue().length());
+        }
+        return this;
+
+    }
+
+    @Step("Проверка атрибута {attributeName} на содержание текста {expected}")
+    public Actions checkAttribute(SelenideElement se, String attributeName,String expected) {
+        se.shouldBe(Condition.visible);
+        if(expected.substring(0, 2).equals("не")){
+            expected = expected.substring(3);
+            Assert.assertFalse(se.getAttribute(attributeName).contains(expected), "атрибут отличается от ожидаемого"+se.getAttribute(attributeName));
+        }else{
+            Assert.assertTrue(se.getAttribute(attributeName).contains(expected), "атрибут отличается от ожидаемого "+se.getAttribute(attributeName));
+        }
+
+        return this;
+    }
+
+    private String valueReplacement(String value) {
+
+        switch (value) {
+            case "RUR":
+                value = "₽";
+                break;
+            case "USD":
+                value = "$";
+                break;
+            case "EUR":
+                value = "€";
+                break;
+            case "GBP":
+                value = "£";
+                break;
+            // default: value =value;
+        }
+        return value;
+    }
+
+    public Actions inputOtp(SelenideElement otpField,SelenideElement otpSendBtn, SelenideElement check, SelenideElement sendAgain) {
+        check(otpField, Condition.visible, "поля ввода смс-кода");
+        wait(1000);
+        setValue(otpField,"1001", "поле ввода смс-кода");
+        click(otpSendBtn);
+        int i =0;
+        do {
+            wait(1000);
+            if (check.is(Condition.exist)){
+                sendAgain.waitUntil(Condition.exist, 60000);
+                wait(1000);
+                sendAgain.click();
+                wait(1000);
+                setValue(otpField,"1001","поле ввода смс-кода");
+                click(otpSendBtn);
+                i++;
+            } else break;
+        }while (i<5);
+        return this;
+    }
+
+    public Actions inputOtpWithCaptcha(SelenideElement otpField,SelenideElement otpSendBtn, SelenideElement check, SelenideElement sendAgain,
+                                       SelenideElement otpCaptcha, SelenideElement otpCaptchaInput, SelenideElement otpCaptchaSend) {
+        wait(2000);
+        if (otpField.is(Condition.exist)){
+            check(otpField, Condition.visible, "поля ввода смс-кода");
+            wait(1000);
+            setValue(otpField,"1001", "поле ввода смс-кода");
+            click(otpSendBtn);
+            int i =0;
+            do {
+                wait(1000);
+                if (check.is(Condition.exist)){
+                    sendAgain.waitUntil(Condition.exist, 60000);
+                    wait(1000);
+                    sendAgain.click();
+                    wait(1000);
+                    setValue(otpField,"1001","поле ввода смс-кода");
+                    click(otpSendBtn);
+                    i++;
+                } else break;
+            }while (i<5);
+        }else {
+            check(otpCaptcha, Condition.visible, "капчи");
+            check(otpCaptchaInput, Condition.visible);
+            check(otpCaptchaSend, Condition.visible);
+            wait(1000);
+            String sid = otpCaptcha.getAttribute("src")
+                    .substring(otpCaptcha.getAttribute("src").indexOf("=")+1);
+            String code = getCaptchaCode(sid, url+"demo/captcha/");
+            setValue(otpCaptchaInput,code,"ввода капчи").wait(1000);
+            click(otpCaptchaSend);
+
+            check(otpField, Condition.visible, "поля ввода смс-кода");
+            wait(1000);
+            setValue(otpField,"1001", "поле ввода смс-кода");
+            click(otpSendBtn);
+
+            int i =0;
+            do {
+                wait(1000);
+                if (check.is(Condition.exist)){
+                    sendAgain.waitUntil(Condition.exist, 60000);
+                    wait(1000);
+                    sendAgain.click();
+                    wait(1000);
+                    check(otpCaptcha, Condition.visible, "капчи");
+                    check(otpCaptchaInput, Condition.visible);
+                    check(otpCaptchaSend, Condition.visible);
+                    wait(1000);
+                    sid = otpCaptcha.getAttribute("src")
+                            .substring(otpCaptcha.getAttribute("src").indexOf("=")+1);
+                    code = getCaptchaCode(sid, url+"demo/captcha/");
+                    setValue(otpCaptchaInput,code,"ввода капчи").wait(1000);
+                    click(otpCaptchaSend);
+                    check(otpField, Condition.visible, "поля ввода смс-кода");
+                    wait(1000);
+                    setValue(otpField,"1001","поле ввода смс-кода");
+                    click(otpSendBtn);
+                    i++;
+                } else break;
+            }while (i<5);
+        }
+
+        return this;
+    }
+
+    @Step("Ввод капчи")
+    public Actions inputCaptchaCode(SelenideElement otpCaptcha, SelenideElement otpCaptchaInput, SelenideElement otpCaptchaSend) {
+        check(otpCaptcha, Condition.visible);
+        check(otpCaptchaInput, Condition.visible);
+//        check(otpCaptchaSend, Condition.exist);
+//        otpCaptcha.waitUntil(Condition.visible,5000);
+//        otpCaptchaInput.waitUntil(Condition.visible,5000);
+//        otpCaptchaSend.waitUntil(Condition.visible,5000);
+        String sid = otpCaptcha.getAttribute("src")
+                .substring(otpCaptcha.getAttribute("src").indexOf("=")+1);
+        String code = given().relaxedHTTPSValidation().get(url+"demo/captcha/"+sid).jsonPath().get("code");
+        setValue(otpCaptchaInput,code,"ввода капчи").wait(1000);
+        click(otpCaptchaSend);
+        return this;
+    }
+
+
+    public Actions fixElementByClassName(String className) {
+        ((JavascriptExecutor) getWebDriver()).executeScript("document.getElementsByClassName('"+className+"')[0].style.position = 'absolute';");
+        return this;
+    }
+
+    public Actions checkCount(ElementsCollection ec, int expected) {
+
+        Assert.assertTrue(ec.size()==expected,"количество элементов в коллекции отличается от ожидаемого");
+        return this;
+    }
+
+    public Actions checkCount(ElementsCollection ec, String value, int expected) {
+        int counter =0;
+        ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+        for (SelenideElement se : ec) {
+            if(se.getText().contains(value)) counter++;
+        }
+        Assert.assertTrue(counter==expected,"количество элементов в коллекции со значением:"+value+" отличается от ожидаемого");
+        return this;
+    }
+
+
+    @Step("постраничник")
+    public Actions clickWhile(ElementsCollection ec, String value, SelenideElement nextPage, int stop) {
+        boolean found = false;
+        int i=0;
+        while (!found){
+            i++;
+            ec.shouldBe(CollectionCondition.sizeGreaterThan(0));
+            for (SelenideElement se : ec) {
+
+                if(se.getText().contains(value))
+                {
+                    //click(se);
+                    se.waitUntil(Condition.visible, 5000).click();
+                    found =true;
+                    break;
+                }
+
+            }
+
+            if (!found && i<stop) {
+                //click(nextPage);
+                nextPage.waitUntil(Condition.enabled, 5000).click();
+                wait(1500);
+            } else {
+                break;
+            }
+        }
+
+        return this;
+    }
+    @Step("Постраничник")
+    public Actions clickWhile(SelenideElement se, String value, SelenideElement nextPage, int stop) {
+        boolean found = false;
+        int i=0;
+        while (!found){
+            i++;
+            se.shouldBe(Condition.visible);
+                if(se.getText().contains(value))
+                {
+                    //click(se);
+                    se.waitUntil(Condition.visible, 5000).click();
+                    found =true;
+                    break;
+                }
+
+
+
+            if (!found && i<stop) {
+                //click(nextPage);
+                nextPage.waitUntil(Condition.enabled, 5000).click();
+                wait(1500);
+            } else {
+                break;
+            }
+        }
+
+        return this;
+    }
+
+    @Step("запись значения {elementName} в localStorage")
+    public Actions rememberValue(SelenideElement se, String elementName, String storageName) {
+
+        ((JavascriptExecutor) getWebDriver()).executeScript(
+                "localStorage.setItem('"+storageName+"', '"+se.getText()+"');");
+        return this;
+    }
+    @Step("запись значения {elementName} в localStorage")
+    public Actions rememberValue(String value, String elementName, String storageName) {
+
+        ((JavascriptExecutor) getWebDriver()).executeScript(
+                "localStorage.setItem('"+storageName+"', '"+value+"');");
+
+        return this;
+    }
+
+
+    @Step("возврат на предыдущую страницу")
+    public Actions back() {
+        WebDriverRunner.getWebDriver().navigate().back();
+        return this;
+    }
+
+    @Step("Запрашиваем код капчи с сидом {sid}")
+    private String getCaptchaCode(String sid,String url) {
+       if(!System.getenv("property.contour").equals("prod")){
+           url = url.replace("demo:Ab123456@","");
+       }
+        Response response = given().header(new Header("Authorization","Basic ZGVtbzpBYjEyMzQ1Ng=="))
+                .relaxedHTTPSValidation().get(url+sid);
+        String code = response.jsonPath().get("code");
+        Assert.assertTrue(response.jsonPath().get().toString().contains("code="),"не смогли получить код из ответа: "+response.jsonPath().get().toString());
+
+        return code;
+    }
